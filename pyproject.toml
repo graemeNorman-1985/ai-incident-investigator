@@ -1,0 +1,28 @@
+[project]
+name = "ai-incident-investigator"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Graeme Norman", email = "graeme@diesta.co.uk" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi[standard]>=0.143.0",
+]
+
+[project.scripts]
+ai-incident-investigator = "ai_incident_investigator:main"
+
+[tool.fastapi]
+entrypoint = "ai_incident_investigator.main:app"
+
+[build-system]
+requires = ["uv_build>=0.12.23,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
