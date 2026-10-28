@@ -1,77 +1,167 @@
 # AI Incident Investigator
 
-An AI-powered developer tool for investigating application incidents from logs and technical evidence. The project is being built incrementally as a portfolio project while learning Applied AI Engineering.
+An AI-powered developer tool for investigating application incidents using logs, stack traces and technical evidence.
 
-The goal is to help engineers understand production failures by summarising symptoms, identifying plausible causes, citing relevant log evidence, suggesting investigation steps, and being explicit about uncertainty.
+This is a portfolio project supporting a transition from Senior/Lead Frontend Engineer to Applied AI Engineer. The aim is to build a credible engineering tool that can identify plausible root causes, cite supporting evidence, recommend investigation steps and acknowledge uncertainty.
 
-> **Project status:** The FastAPI backend currently provides deterministic log analysis. A standalone script also calls the OpenAI Responses API and requests a Pydantic-backed structured investigation report. The AI call has **not yet been integrated into the `/analyse` endpoint**.
+> **Current status:** The backend provides deterministic and AI-powered incident analysis through FastAPI. The AI integration uses the OpenAI Responses API and returns a structured Pydantic report. The automated test suite covers the analysis functions, endpoint behaviour and AI service using mocked responses.
 
 ## Current capabilities
 
-- FastAPI application with `GET /health` and `POST /analyse`.
-- Pydantic request and response models.
-- Deterministic log analysis to count errors, group entries by service, find the earliest error by timestamp, and extract warning/error entries as potential supporting evidence.
+- FastAPI application with `GET /health`, `POST /analyse` and `POST /analyse/ai`.
+- Pydantic models for API requests, deterministic responses and AI investigation reports.
+- Deterministic analysis to count errors, group entries by service, find the earliest error by timestamp and extract warning/error entries as potential evidence.
 - Synthetic database connection-pool-exhaustion incident data.
-- Separate ground-truth data for testing; it should not be supplied to the model as incident input.
-- Tests for analysis functions, malformed entries, timestamp ordering, evidence selection, and endpoint behaviour.
-- A standalone OpenAI SDK connection check and a standalone structured-investigation script using the Responses API.
+- Ground-truth incident records kept separate from the data supplied to the AI.
+- A dedicated AI investigation service using the OpenAI Python SDK and Responses API.
+- Structured AI reports parsed into the `AIInvestigationReport` Pydantic model.
+- Automated tests for analysis behaviour, malformed log entries, timestamp ordering, evidence extraction, endpoint responses and AI service behaviour.
+- Standalone scripts for checking OpenAI connectivity and generating a structured investigation report.
 
 ## Technology stack
 
-- **Python**
-- **FastAPI** and **Uvicorn** for the API
-- **Pydantic** for request, response, and AI report models
-- **uv** for Python project/dependency management
-- **pytest** and FastAPI `TestClient` for tests
-- **OpenAI Python SDK** and the **Responses API** for the initial AI experiment
-- **Angular** is the planned frontend; it has not been started yet.
+**Backend**
+
+- Python
+- FastAPI
+- Uvicorn
+- Pydantic
+- OpenAI Python SDK
+- OpenAI Responses API
+
+**Development and testing**
+
+- `uv` for dependency and virtual-environment management
+- `pytest` for automated tests
+- FastAPI `TestClient` and HTTPX for endpoint testing
+- Git and GitHub
+
+**Planned frontend**
+
+- Angular and TypeScript
+
+The Angular frontend has not yet been implemented.
+
+## API endpoints
+
+The application currently exposes three endpoints.
+
+| Method | Endpoint      | Purpose                                                     |
+| ------ | ------------- | ----------------------------------------------------------- |
+| GET    | `/health`     | Confirms that the API is running.                           |
+| POST   | `/analyse`    | Performs deterministic log analysis without calling an LLM. |
+| POST   | `/analyse/ai` | Generates an AI-powered investigation report using OpenAI.  |
+
+### Example request
+
+Both analysis endpoints accept JSON containing a `log_text` field.
+
+```json
+{
+  "log_text": "2026-10-09T10:00:03Z WARN payment-service Database connection pool at capacity active=20 max=20\n2026-10-09T10:00:04Z ERROR payment-service Database connection timeout"
+}
+```
+
+### Deterministic analysis: `POST /analyse`
+
+The deterministic endpoint uses ordinary Python functions to analyse the submitted logs.
+
+It returns information such as:
+
+- Number of error entries.
+- Entries grouped by service.
+- Earliest error by timestamp.
+- Warning and error entries selected as potentially relevant evidence.
+
+This provides a predictable baseline against which the AI-powered approach can be compared.
+
+### AI-powered investigation: `POST /analyse/ai`
+
+The AI endpoint delegates to a dedicated AI investigation service. The service sends the logs and investigation instructions to the OpenAI Responses API and parses the response into an `AIInvestigationReport`.
+
+The report contains six fields:
+
+| Field                    | Purpose                                                             |
+| ------------------------ | ------------------------------------------------------------------- |
+| `summary`                | A concise description of the incident and symptoms.                 |
+| `likely_root_cause`      | The most plausible explanation supported by the available evidence. |
+| `supporting_evidence`    | Log entries cited in support of the findings.                       |
+| `alternative_hypotheses` | Other plausible explanations worth investigating.                   |
+| `recommended_next_steps` | Practical debugging and investigation actions.                      |
+| `uncertainties`          | Missing information and unresolved questions.                       |
+
+The AI is instructed to distinguish observations from hypotheses and to use exact log entries as supporting evidence.
+
+Structured output provides a defined data shape, but does not guarantee that the diagnosis is correct. Evidence accuracy and diagnostic quality need to be assessed separately.
+
+### Interactive API documentation
+
+Start the server using the instructions below and open:
+
+- API documentation: <http://127.0.0.1:8000/docs>
+- Health endpoint: <http://127.0.0.1:8000/health>
+
+Use the interactive documentation to submit the same incident to both analysis endpoints and compare their responses.
+
+The AI endpoint makes a real OpenAI API request and may incur usage charges.
 
 ## Architecture
 
-### Current deterministic API flow
+### Application request flow
 
-The API currently uses deterministic Python functions. It does not call an LLM when `POST /analyse` is requested.
-
-```mermaid
-flowchart TD
-    A[Client submits log bundle] --> B[FastAPI router: POST /analyse]
-    B --> C[Deterministic log analysis service]
-    C --> D[Count errors]
-    C --> E[Group entries by service]
-    C --> F[Find earliest error by timestamp]
-    C --> G[Extract WARN and ERROR evidence]
-    D --> H[IncidentAnalysisResponse]
-    E --> H
-    F --> H
-    G --> H
-    H --> I[JSON response]
-```
-
-### Target AI investigation flow
-
-This is the next integration step. The standalone script already demonstrates the OpenAI call and parsed report, but the API router is not yet connected to the AI investigation service.
+The application exposes separate routes for deterministic analysis and AI-powered investigation.
 
 ```mermaid
 flowchart TD
-    A[FastAPI router] --> B[AI investigation service]
-    B --> C[OpenAI Responses API]
-    C --> D[Structured response parsed by the OpenAI SDK]
-    D --> E[AIInvestigationReport Pydantic model]
-    E --> F[Structured investigation report]
+    A[Client submits log bundle] --> B[FastAPI router]
+
+    B --> C[POST /analyse]
+    C --> D[Deterministic log analysis service]
+    D --> E[Count errors]
+    D --> F[Group entries by service]
+    D --> G[Find earliest error]
+    D --> H[Extract warning/error evidence]
+    E --> I[IncidentAnalysisResponse]
+    F --> I
+    G --> I
+    H --> I
+    I --> J[JSON response]
+
+    B --> K[POST /analyse/ai]
+    K --> L[AI investigation service]
+    L --> M[OpenAI Responses API]
+    M --> N[Structured response parsing]
+    N --> O[AIInvestigationReport]
+    O --> P[JSON response]
 ```
 
-The `AIInvestigationReport` model defines the expected output fields:
+### Deterministic analysis
 
-- `summary`
-- `likely_root_cause`
-- `supporting_evidence`
-- `alternative_hypotheses`
-- `recommended_next_steps`
-- `uncertainties`
+The deterministic analysis service applies explicit Python rules to the submitted log text. Its behaviour is predictable for a given input, making it a useful baseline for testing and comparison.
 
-A valid schema does not guarantee a correct diagnosis. Evidence grounding, uncertainty handling, and diagnosis quality need to be tested separately.
+### AI investigation
+
+The AI investigation service is responsible for:
+
+1. Creating or receiving an OpenAI SDK client.
+2. Supplying the investigation instructions and log bundle.
+3. Calling the Responses API with the Pydantic report model.
+4. Returning the parsed report to the caller.
+5. Reporting an error if a usable parsed report is unavailable.
+
+The router handles the HTTP request and response, while the service contains the AI integration logic. This separation allows the service to be tested independently and reused outside the HTTP layer.
+
+### Investigation report model
+
+`AIInvestigationReport` defines the structure of the AI-generated report.
+
+It specifies the expected fields and their types. It does not define the correct diagnosis in advance; the model generates the field values using the supplied logs and instructions.
+
+The report's accuracy must be assessed through evidence checks and evaluation against incidents with known ground truth.
 
 ## Project structure
+
+The main project structure is organised as follows:
 
 ```text
 ai-incident-investigator/
@@ -84,7 +174,8 @@ ai-incident-investigator/
 │       │   ├── incident.py
 │       │   └── ai_investigation.py
 │       ├── services/
-│       │   └── log_analysis.py
+│       │   ├── log_analysis.py
+│       │   └── ai_investigation.py
 │       └── data/
 │           ├── incidents.py
 │           └── ground_truth.py
@@ -94,105 +185,100 @@ ai-incident-investigator/
 ├── tests/
 │   ├── test_main.py
 │   ├── test_log_analysis.py
-│   └── test_incidents.py
-├── .env                 # Local only; never commit
+│   ├── test_incidents.py
+│   └── test_ai_investigation.py
+├── .env
 ├── .gitignore
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
 ```
 
-This is a guide to the intended/current working layout; update it when files are added, removed, or renamed.
+This is an overview of the main files. Update it when the project structure changes.
 
 ## Prerequisites
 
-- Python version supported by `pyproject.toml` (currently Python 3.13 or later).
-- [`uv`](https://docs.astral.sh/uv/) installed.
-- An OpenAI API key for the standalone AI scripts. API usage is billed separately from a ChatGPT subscription and may incur charges.
+- Python version compatible with `pyproject.toml`.
+- `uv` installed.
+- An OpenAI API key to run the standalone AI scripts and exercise the AI endpoint.
+
+OpenAI API usage is billed separately from a ChatGPT subscription. Check your API account's billing configuration before making requests.
 
 ## Setup
 
-From the repository root:
+Run commands from the repository root.
+
+### Install dependencies
 
 ```bash
 uv sync
 ```
 
-Create a local `.env` file in the repository root with your API key:
+The `uv.lock` file records resolved dependencies for reproducible installations.
+
+### Configure the API key
+
+Create a `.env` file in the project root:
 
 ```dotenv
 OPENAI_API_KEY=your_actual_api_key_here
 ```
 
-Replace the placeholder with your own key. Never commit `.env` or paste the key into source code, logs, issues, or chat messages. The repository's `.gitignore` should include:
+Replace the placeholder with your own API key.
+
+Never commit `.env`, hardcode the API key in source code or expose it in logs, screenshots or public repositories.
+
+Ensure `.gitignore` contains:
 
 ```gitignore
 .env
 ```
 
-Confirm that Git ignores the file:
+Check that Git ignores the file:
 
 ```bash
 git check-ignore -v .env
 ```
 
-You can verify that `uv` loads the key without printing the secret:
+Verify that `uv` can load the environment variable without printing the secret:
 
 ```bash
 uv run --env-file .env python -c "import os; print('API key loaded' if os.getenv('OPENAI_API_KEY') else 'API key missing')"
 ```
 
+Expected output:
+
+```text
+API key loaded
+```
+
 ## Useful commands
 
-Run these commands from the repository root.
-
-### Install/synchronise dependencies
-
-```bash
-uv sync
-```
-
-Add a dependency (example):
-
-```bash
-uv add openai
-```
-
-### Run the tests
+### Run the complete test suite
 
 ```bash
 uv run pytest
 ```
 
-Run a specific test file:
+Run an individual test file:
 
 ```bash
 uv run pytest tests/test_log_analysis.py
 uv run pytest tests/test_main.py
+uv run pytest tests/test_ai_investigation.py
 ```
 
-### Start the FastAPI development server
+The automated AI service tests use mocked clients and responses, so they do not need to make live OpenAI requests.
 
-Load `.env` for the server process:
+### Start the FastAPI development server
 
 ```bash
 uv run --env-file .env fastapi dev
 ```
 
-Then open:
+Open <http://127.0.0.1:8000/docs> to explore the endpoints.
 
-- Interactive API docs: <http://127.0.0.1:8000/docs>
-- Health endpoint: <http://127.0.0.1:8000/health>
-
-Use `POST /analyse` in `/docs` to submit a JSON request such as:
-
-```json
-{
-  "log_text": "2026-10-09T10:00:03Z WARN payment-service Database connection pool at capacity active=20 max=20\n2026-10-09T10:00:04Z ERROR payment-service Database connection timeout request_id=req-102"
-}
-```
-
-The current endpoint returns deterministic analysis; it is not yet using OpenAI.
+Keep the server terminal running while testing requests. Stop the server with `Ctrl+C`.
 
 ### Check OpenAI SDK connectivity
 
@@ -200,45 +286,130 @@ The current endpoint returns deterministic analysis; it is not yet using OpenAI.
 uv run --env-file .env python scripts/test_openai_connection.py
 ```
 
-This makes a real API request. It verifies that the SDK can access the API using the configured key, but it is not an automated unit test and may incur usage charges.
+This script makes a real API request to check that the SDK and API configuration work. It is not an automated unit test and may incur usage charges.
 
-### Generate a structured investigation report
+### Run a structured AI investigation
 
 ```bash
 uv run --env-file .env python scripts/test_structured_investigation.py
 ```
 
-This standalone experiment sends the synthetic database-pool-exhaustion logs to the Responses API and parses the result into `AIInvestigationReport`. It is not yet invoked by `POST /analyse`.
+This script supplies the synthetic database-pool-exhaustion logs to the AI investigation service and prints the resulting structured report.
+
+It makes a real API request and may incur usage charges. It is useful for inspecting the AI output independently of HTTP request handling.
 
 ## Synthetic incidents and ground truth
 
-The first incident models database connection-pool exhaustion using synthetic log entries. Its expected root cause and related evaluation notes are held separately from the log bundle in the ground-truth data module.
+The first synthetic incident models database connection-pool exhaustion.
 
-Ground truth is for tests and evaluation. Do not include it in the model's input when investigating that incident; otherwise, the test would reveal the answer to the model.
+Its logs include:
 
-Potential later scenarios include expired credentials, downstream timeouts, deployment regressions, memory leaks, database migration failures, queue backlogs, and unavailable service dependencies.
+- Timestamped service messages.
+- An informational request entry.
+- A database connection pool capacity warning.
+- Database connection timeout errors.
+- A failed payment request.
+- An upstream gateway failure.
+
+The known root cause and evaluation notes are stored separately in the ground-truth data module.
+
+**Ground truth must not be included in the model's incident input.** Doing so would reveal the expected answer and invalidate the investigation as a meaningful test.
+
+Future scenarios may include expired credentials, downstream timeouts, deployment regressions, memory leaks, failed database migrations, queue backlogs and unavailable dependencies.
+
+Potential future external datasets include LogHub and the OpenTelemetry Demo. These are not currently required for the initial implementation. Check their licences and reuse conditions before incorporating or redistributing external data.
+
+## Testing and evaluation principles
+
+The project distinguishes ordinary software tests from AI quality evaluation.
+
+### Software tests
+
+Unit and endpoint tests verify expected behaviour, including:
+
+- Error counting and service grouping.
+- Timestamp ordering and malformed log handling.
+- Supporting evidence extraction.
+- API request validation and response contracts.
+- The AI service's use of structured responses.
+- Handling of missing parsed reports and service failures.
+
+AI service tests use mocks to avoid unnecessary external API calls and keep the test suite reproducible.
+
+### AI quality evaluation
+
+Passing tests and receiving valid JSON do not demonstrate that the AI reached the correct diagnosis.
+
+The planned evaluation approach will assess whether the system:
+
+- Identifies the expected root cause or a defensible alternative.
+- Uses relevant supporting evidence.
+- Avoids fabricating log entries or unsupported claims.
+- Acknowledges uncertainty when evidence is insufficient.
+- Provides useful and proportionate investigation steps.
+
+Synthetic ground truth provides a controlled starting point for these evaluations.
 
 ## Current limitations and engineering principles
 
-- The deterministic analysis uses explicit rules and does not establish causation.
-- Warning/error entries selected as evidence are _potentially relevant_; selection alone does not prove they support a particular hypothesis.
-- The standalone AI report can be structurally valid while its diagnosis or recommendations are wrong.
-- Supporting evidence is instructed to use exact supplied log lines, but automatic verification of every AI-cited line against the input has not yet been added.
-- Missing evidence should result in stated uncertainty rather than unsupported certainty.
-- Live OpenAI requests should not be required for the ordinary unit-test suite. AI service tests should use mocks or another controlled approach.
-- Keep secrets out of source control and keep ground truth separate from model input.
-
-## Roadmap
-
-1. Finish strengthening the deterministic baseline and its tests.
-2. Move the standalone Responses API call into a dedicated AI investigation service.
-3. Integrate AI investigation into the FastAPI backend incrementally.
-4. Add reliable handling for API errors and responses that do not contain a parsed report.
-5. Test the AI service without making every test call OpenAI.
-6. Compare outputs with the synthetic ground truth and develop a repeatable evaluation approach.
-7. Build the Angular interface once the backend workflow is stable.
-8. Consider retrieval over documentation/runbooks, broader datasets, observability, security, and deployment when the relevant learning modules are reached.
+- Deterministic analysis applies explicit rules; it does not establish causation.
+- Warning/error entries selected by the deterministic analyser are potentially relevant evidence. Selection alone does not prove they support a particular hypothesis.
+- Structured AI output does not guarantee factual accuracy or diagnostic correctness.
+- The AI is instructed to quote exact supplied log lines, but automatic verification of every cited line against the original input remains a planned improvement.
+- Log entries with different request IDs must not be assumed to belong to the same request trace without further evidence.
+- Missing information should be reported as uncertainty rather than replaced with unsupported certainty.
+- The AI endpoint depends on an external provider and may incur usage charges.
+- API failure handling is implemented for the current integration, but more comprehensive resilience, retry policies, rate limiting and production security controls may be needed.
+- Do not commit API keys or other secrets.
+- Keep ground-truth incident records separate from the AI's input.
+- Do not require live OpenAI requests for ordinary automated tests.
 
 ## Development workflow
 
-Work on a feature branch for the OpenAI integration, keep changes small, and run `uv run pytest` before committing. Never commit `.env` or any real API key. Update this README as commands, architecture, and project status change.
+The current AI integration work is maintained on a feature branch.
+
+Use small, focused changes:
+
+```bash
+git status
+uv run pytest
+git diff
+```
+
+Commit changes with descriptive messages and push them to GitHub.
+
+Before committing, review the staged files and confirm that `.env` and other secrets are not included.
+
+Update the README whenever the endpoints, architecture, scripts, configuration or project capabilities change.
+
+## Roadmap
+
+### Completed
+
+1. Python and FastAPI foundations.
+2. Deterministic incident analysis and synthetic incident data.
+3. Automated tests for malformed logs, timestamp ordering and supporting evidence.
+4. OpenAI SDK configuration and Responses API experimentation.
+5. Pydantic model for structured AI investigation reports.
+6. Dedicated AI investigation service.
+7. AI-powered FastAPI endpoint with mocked endpoint tests.
+8. Separate README documentation for deterministic and AI-powered analysis.
+
+### Next
+
+1. Verify both analysis endpoints interactively through `/docs`.
+2. Review the API's behaviour for success, invalid input and provider failures.
+3. Verify AI-cited log entries against the supplied input.
+4. Expand synthetic incidents while keeping ground truth separate.
+5. Develop repeatable evaluations for diagnosis quality, evidence accuracy and uncertainty handling.
+6. Build the Angular interface once the backend workflow is stable.
+
+### Later learning milestones
+
+- Retrieval-Augmented Generation (RAG) over technical documentation and runbooks.
+- Tool/function calling for controlled investigation operations.
+- More systematic AI evaluation and regression testing.
+- Observability, latency and cost monitoring.
+- AI-specific security controls.
+- CI/CD, deployment and production hardening.
+- Broader incident datasets and distributed-system telemetry.

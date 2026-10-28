@@ -1,5 +1,14 @@
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+from openai import APIError, APITimeoutError
+
+from ai_incident_investigator.models.ai_investigation import (
+    AIInvestigationReport,
+)
+from ai_incident_investigator.services.ai_investigation import (
+    investigate_incident,
+)
+
 from ai_incident_investigator.models.incident import (
     IncidentAnalysisRequest,
     IncidentAnalysisResponse,
@@ -39,4 +48,32 @@ def analyse_incident(
         supporting_evidence=supporting_evidence,
     )
 
+
+@router.post(
+    "/analyse/ai",
+    response_model=AIInvestigationReport,
+)
+def analyse_incident_with_ai(
+    request: IncidentAnalysisRequest,
+) -> AIInvestigationReport:
+    try:
+        return investigate_incident(request.log_text)
+
+    except APITimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="The AI investigation request timed out.",
+        ) from exc
+
+    except APIError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The AI investigation provider request failed.",
+        ) from exc
+
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The AI investigation service returned no usable report.",
+        ) from exc
 
