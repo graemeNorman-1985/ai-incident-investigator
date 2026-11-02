@@ -17,6 +17,7 @@ This is a portfolio project supporting a transition from Senior/Lead Frontend En
 - Structured AI reports parsed into the `AIInvestigationReport` Pydantic model.
 - Automated tests for analysis behaviour, malformed log entries, timestamp ordering, evidence extraction, endpoint responses and AI service behaviour.
 - Standalone scripts for checking OpenAI connectivity and generating a structured investigation report.
+- Standardised AI API error responses using stable error codes and HTTP status codes.
 
 ## Technology stack
 
@@ -93,6 +94,32 @@ The report contains six fields:
 The AI is instructed to distinguish observations from hypotheses and to use exact log entries as supporting evidence.
 
 Structured output provides a defined data shape, but does not guarantee that the diagnosis is correct. Evidence accuracy and diagnostic quality need to be assessed separately.
+
+### Error responses
+
+AI investigation failures return a consistent JSON response containing a machine-readable `error_code` and a human-readable `detail`.
+
+| Error code              | HTTP status | Meaning                                                  |
+| ----------------------- | ----------: | -------------------------------------------------------- |
+| `INVALID_AI_EVIDENCE`   |         502 | The AI cited evidence not present in the supplied logs.  |
+| `AI_PROVIDER_ERROR`     |         502 | The OpenAI provider request failed.                      |
+| `AI_REPORT_UNAVAILABLE` |         502 | The service could not obtain a usable structured report. |
+| `AI_PROVIDER_TIMEOUT`   |         504 | The AI provider request timed out.                       |
+
+Example response:
+
+```json
+{
+  "error_code": "INVALID_AI_EVIDENCE",
+  "detail": "The AI investigation returned invalid supporting evidence."
+}
+```
+
+Frontend applications should use `error_code` for programmatic error handling and `detail` for displaying a human-readable message.
+
+HTTP status codes provide the broader classification of the failure.
+
+Request validation errors currently use FastAPI's default `422` response format and have not yet been standardised to this contract.
 
 ### Interactive API documentation
 

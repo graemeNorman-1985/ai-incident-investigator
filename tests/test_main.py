@@ -1,9 +1,78 @@
-
 from fastapi.testclient import TestClient
-
 from ai_incident_investigator.main import app
+from ai_incident_investigator.routers import incidents as incidents_router
+from ai_incident_investigator.services.ai_investigation import (
+    InvalidEvidenceError,
+)
+from unittest.mock import MagicMock
+from openai import APIError, APITimeoutError
 
 client = TestClient(app)
+
+
+
+def test_analyse_ai_returns_504_when_provider_times_out(monkeypatch):
+    def fake_investigate_incident(logs: str):
+        raise APITimeoutError(request=MagicMock())
+
+    monkeypatch.setattr(
+        incidents_router,
+        "investigate_incident",
+        fake_investigate_incident,
+    )
+
+    response = client.post(
+        "/analyse/ai",
+        json={
+            "log_text": (
+                "2026-10-09T10:00:04Z ERROR "
+                "payment-service Database timeout"
+            )
+        },
+    )
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "error_code": "AI_PROVIDER_TIMEOUT",
+        "detail": "The AI investigation request timed out.",
+    }
+
+
+
+def test_analyse_ai_returns_502_when_provider_fails(monkeypatch):
+    def fake_investigate_incident(logs: str):
+        raise APIError(
+            message="Internal provider error details",
+            request=MagicMock(),
+            body=None,
+        )
+
+    monkeypatch.setattr(
+        incidents_router,
+        "investigate_incident",
+        fake_investigate_incident,
+    )
+
+    response = client.post(
+        "/analyse/ai",
+        json={
+            "log_text": (
+                "2026-10-09T10:00:04Z ERROR "
+                "payment-service Database timeout"
+            )
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error_code": "AI_PROVIDER_ERROR",
+        "detail": "The AI investigation provider request failed.",
+    }
+
+    assert "Internal provider error details" not in response.text
+
+
+
 
 
 def test_health_check():
@@ -132,3 +201,66 @@ def test_analyse_includes_supporting_log_evidence():
         "2026-10-09T10:00:05Z ERROR api-gateway Upstream request failed",
     ]
 
+
+def test_analyse_ai_returns_502_when_report_is_unavailable(monkeypatch):
+    def fake_investigate_incident(logs: str):
+        raise RuntimeError("Internal implementation details")
+
+    monkeypatch.setattr(
+        incidents_router,
+        "investigate_incident",
+        fake_investigate_incident,
+    )
+
+    response = client.post(
+        "/analyse/ai",
+        json={
+            "log_text": (
+                "2026-10-09T10:00:04Z ERROR "
+                "payment-service Database timeout"
+            )
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error_code": "AI_REPORT_UNAVAILABLE",
+        "detail": (
+            "The AI investigation service returned no usable report."
+        ),
+    }
+
+    assert "Internal implementation details" not in response.text
+
+
+def test_analyse_ai_returns_502_when_evidence_is_invalid(monkeypatch):
+    def fake_investigate_incident(logs: str):
+        raise InvalidEvidenceError(
+            "AI returned supporting evidence not present in input logs."
+        )
+
+    monkeypatch.setattr(
+        incidents_router,
+        "investigate_incident",
+        fake_investigate_incident,
+    )
+
+    response = client.post(
+        "/analyse/ai",
+        json={
+            "log_text": (
+                "2026-10-09T10:00:04Z ERROR "
+                "payment-service Database timeout"
+            )
+        },
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "error_code": "INVALID_AI_EVIDENCE",
+        "detail": (
+            "The AI investigation returned invalid supporting evidence."
+        ),
+    }
+
+    assert "supporting evidence not present in input logs" not in response.text

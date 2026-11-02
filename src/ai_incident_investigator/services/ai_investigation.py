@@ -5,6 +5,8 @@ from ai_incident_investigator.models.ai_investigation import (
     AIInvestigationReport,
 )
 
+class InvalidEvidenceError(Exception):
+    """Raised when AI evidence is absent from the supplied input logs."""
 
 MODEL = "gpt-5-mini"
 
@@ -42,6 +44,21 @@ def investigate_incident(
     if report is None:
         raise RuntimeError(
             "OpenAI did not return a parsed investigation report."
+        )
+
+    # Build a set of the exact log lines supplied to the AI.
+    input_log_lines = set(logs.splitlines())
+
+    # Find any evidence entries that aren't in the original input.
+    invalid_evidence = [
+        evidence
+        for evidence in report.supporting_evidence
+        if evidence not in input_log_lines
+    ]
+
+    if invalid_evidence:
+        raise InvalidEvidenceError(
+            "AI returned supporting evidence not present in input logs."
         )
 
     return report

@@ -8,6 +8,7 @@ from ai_incident_investigator.models.ai_investigation import (
     AIInvestigationReport,
 )
 from ai_incident_investigator.services.ai_investigation import (
+    InvalidEvidenceError,
     investigate_incident,
 )
 
@@ -69,3 +70,35 @@ def test_investigate_incident_raises_when_no_parsed_report():
             "2026-10-09T10:00:04Z ERROR payment-service Database timeout",
             client=mock_client,
         )
+
+
+def test_investigate_incident_rejects_evidence_not_in_logs():
+    logs = (
+        "2026-10-09T10:00:04Z ERROR payment-service "
+        "Database connection timeout"
+    )
+
+    # Start with our normal valid report.
+    expected_report = make_investigation_report()
+
+    # Simulate the AI inventing a log entry that was never supplied.
+    expected_report = expected_report.model_copy(
+        update={
+            "supporting_evidence": [
+                "2026-10-09T10:00:07Z ERROR payment-service "
+                "Database unavailable"
+            ]
+        }
+    )
+
+    mock_client = MagicMock()
+    mock_client.responses.parse.return_value = SimpleNamespace(
+        output_parsed=expected_report
+    )
+
+    with pytest.raises(
+        InvalidEvidenceError,
+        match="supporting evidence not present in input logs",
+    ):
+        investigate_incident(logs, client=mock_client)
+
